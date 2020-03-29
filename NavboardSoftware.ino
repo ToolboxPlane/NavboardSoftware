@@ -4,6 +4,10 @@
 #include <RH_RF95.h>
 #include <Adafruit_MPL3115A2.h>
 
+extern "C" {
+  #include "rc_lib.h"
+};
+
 #define RFM95_CS 8
 #define RFM95_RST 4
 #define RFM95_INT 3
@@ -87,6 +91,8 @@ void setup() {
     while (1);
   }
   digitalWrite(13, LOW);
+
+  rc_lib_transmitter_id = 91;
 }
 
 // the loop function runs over and over again forever
@@ -95,24 +101,26 @@ void loop() {
 
   // Altimeter
   float altm = baro.getAltitude();
-  Serial.print(altm); Serial.println("m");
+  if (altm >= 2048) {
+    altm = 2047;
+  }
 
   // Pitot Tube
   uint16_t adc = analogRead(A0);
-  float outputVoltage = adc/1023.0F * 5; // Compensating for the voltage divider
-  
-  float pressurekPa = outputVoltage - 1;
-  Serial.print(outputVoltage); Serial.println("V");
-  Serial.print(pressurekPa); Serial.println("kPa");
-  float rho_air = 1.2041F;
-  float velocity = sqrt(2 * pressurekPa / rho_air);
-  Serial.print(velocity); Serial.println("m/s");
 
   // SRF-02
   srf02_start();
   delay(70);
   uint16_t distance = srf02_read();
-  Serial.print(distance); Serial.println("cm");
+
+  rc_lib_package_t pkg;
+  rc_lib_init_tx(&pkg, 2048, 4);
+  pkg.channel_data[0] = rf95.lastRssi();
+  pkg.channel_data[1] = altm;
+  pkg.channel_data[2] = adc;
+  pkg.channel_data[3] = distance;
+  uint16_t len = rc_lib_encode(&pkg);
+  Serial.write(pkg.buffer, len);
 
   // LoRa
   uint8_t buf[BUF_SIZE];
